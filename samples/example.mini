@@ -15,3 +15,28 @@ fun main(): Unit {
     var b: Boolean = a > 10
     println(a)
 }
+
+// public static void factorial(Integer n, Continuation<Integer> __continuation) { 
+//  if ((n <= 1)) {
+//    __continuation.accept(1);
+//    return;
+//  }
+//  else {
+//    factorial((n - 1), (arg0) -> {
+//      __continuation.accept((n * arg0));
+//      return;
+//      });
+//    }
+//}
+//
+//public static void main(String[] args) { 
+//  factorial(5, (arg0) -> {
+//    Integer result = arg0;
+//    Prelude.println(result, (arg1) -> {
+//      Integer a = (10 + 5);
+//      Boolean b = (a > 10);
+//      Prelude.println(a, (arg2) -> {
+//      });
+//    });
+//  });
+//}
