@@ -72,7 +72,8 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             head.variableAssignment() != null -> compileAsgt(head.variableAssignment(), tail)
             head.ifStatement() != null -> compileIf(head.ifStatement(), tail)
             head.whileStatement() != null -> compileWhile(head.whileStatement(), tail)
-            head.expression() != null -> compileExpr(head.expression(), tail)
+            head.expression() != null ->
+                compileExpr(head.expression()) { _ -> compileStatements(tail) }
             else -> error("unknown statement at ${head.start.line}")
         }
     }
@@ -94,25 +95,32 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     private fun compileVar(
         ctx: MiniKotlinParser.VariableDeclarationContext,
         tail: List<MiniKotlinParser.StatementContext>,
-    ): String = TODO()
+    ): String {
+        val name = ctx.IDENTIFIER().text
+        val type = visitType(ctx.type())
+
+        return compileExpr(ctx.expression()) { value ->
+            "${indent()}$type $name = $value;\n" + compileStatements(tail)
+        }
+    }
 
     // parse `=` as assignment statements
     private fun compileAsgt(
         ctx: MiniKotlinParser.VariableAssignmentContext,
         tail: List<MiniKotlinParser.StatementContext>,
-    ): String = TODO()
+    ): String = "asgt here"
 
     // parse `if (...) else` statements
     private fun compileIf(
         ctx: MiniKotlinParser.IfStatementContext,
         tail: List<MiniKotlinParser.StatementContext>,
-    ): String = TODO()
+    ): String = "if here"
 
     // parse `while` statements
     private fun compileWhile(
         ctx: MiniKotlinParser.WhileStatementContext,
         tail: List<MiniKotlinParser.StatementContext>,
-    ): String = TODO()
+    ): String = "while here"
 
     // parse all potential expressions
     private fun compileExpr(
@@ -169,7 +177,11 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         ctx: MiniKotlinParser.FunctionCallExprContext,
         cont: (String) -> String,
     ): String {
-        val name = ctx.IDENTIFIER().text
+        val name =
+            when (ctx.IDENTIFIER().text) {
+                "println" -> "Prelude.println"
+                else -> ctx.IDENTIFIER().text
+            }
         val args = ctx.argumentList()?.expression() ?: emptyList()
 
         // propagate chain of arguments into CPS calls
