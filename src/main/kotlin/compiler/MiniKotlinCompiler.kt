@@ -203,7 +203,18 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         op: String,
         right: MiniKotlinParser.ExpressionContext,
         cont: (String) -> String,
-    ): String = compileExpr(left) { l -> compileExpr(right) { r -> cont("($l $op $r)") } }
+    ): String =
+        compileExpr(left) { l ->
+            compileExpr(right) { r ->
+                val expr =
+                    when (op) {
+                        "==" -> "$l.equals($r)"
+                        "!=" -> "!$l.equals($r)"
+                        else -> "($l $op $r)"
+                    }
+                cont(expr)
+            }
+        }
 
     // parse primary expression
     private fun compilePrimary(
