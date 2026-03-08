@@ -32,6 +32,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         ctx: MiniKotlinParser.FunctionDeclarationContext
     ): String {
         argCounter = 0
+        indentLevel = 1
         val name = ctx.IDENTIFIER().text
         val returnType = visitType(ctx.type())
 
@@ -108,19 +109,47 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     private fun compileAsgt(
         ctx: MiniKotlinParser.VariableAssignmentContext,
         tail: List<MiniKotlinParser.StatementContext>,
-    ): String = "asgt here"
+    ): String {
+        val name = ctx.IDENTIFIER().text
+        return compileExpr(ctx.expression()) { value ->
+            "${indent()}$name = $value;\n" + compileStatements(tail)
+        }
+    }
 
     // parse `if (...) else` statements
+    // we could change if to be an expression for multileveled ifs
     private fun compileIf(
         ctx: MiniKotlinParser.IfStatementContext,
         tail: List<MiniKotlinParser.StatementContext>,
-    ): String = "if here"
+    ): String {
+        return compileExpr(ctx.expression()) { cond ->
+            // parse both branches if exist
+            val ifBranch = indentBlock { compileStatements(ctx.block(0).statement() + tail) }
+            val elseBranch =
+                if (ctx.block().size > 1) {
+                    "${indent()}} else {\n" +
+                        indentBlock { compileStatements(ctx.block(1).statement() + tail) }
+                } else ""
+
+            "${indent()}if ($cond) {\n" + ifBranch + elseBranch + "${indent()}}\n"
+        }
+    }
 
     // parse `while` statements
     private fun compileWhile(
         ctx: MiniKotlinParser.WhileStatementContext,
         tail: List<MiniKotlinParser.StatementContext>,
-    ): String = "while here"
+    ): String {
+        return compileExpr(ctx.expression()) { cond ->
+            val block =
+                when (ctx.block()) {
+                    null -> ""
+                    else -> indentBlock { compileStatements(ctx.block().statement()) }
+                }
+
+            "${indent()}while ($cond) {\n" + block + "${indent()}}\n" + compileStatements(tail)
+        }
+    }
 
     // parse all potential expressions
     private fun compileExpr(
@@ -198,9 +227,9 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return liftArgs(0, emptyList())
     }
 
-    override fun visitParameter(ctx: MiniKotlinParser.ParameterContext): String {
-        return "empty!"
-    }
+    // override fun visitParameter(ctx: MiniKotlinParser.ParameterContext): String {
+    //     return "empty!"
+    // }
 
     override fun visitType(ctx: MiniKotlinParser.TypeContext): String {
         return when {
