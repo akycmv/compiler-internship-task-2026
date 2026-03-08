@@ -13,6 +13,9 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     // a = a + 1 <-- therefore mutable
     private var mutableVars = emptySet<String>()
 
+    // no continuation returns in main function
+    private var isMain = false
+
     private fun indent() = "    ".repeat(indentLevel)
 
     private fun callArg() = "arg${argCounter++}"
@@ -31,7 +34,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         val functions =
             program.functionDeclaration().joinToString("\n\n") { visitFunctionDeclaration(it) }
 
-        return "public class $className {\n\n$functions\n\n}"
+        return "import java.util.Objects;\npublic class $className {\n\n$functions\n\n}"
     }
 
     override fun visitFunctionDeclaration(
@@ -48,12 +51,13 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         // the approach is, we turn mutable variables into single element array
         // and since it is mutable in lambdas we do not get ownership errors
         mutableVars = findMutableVars(ctx.block())
+        isMain = name == "main"
 
         val signature =
             // technically, spec allows to have `main(): Integer`
             // which is not legal in java, but we have to compile/transpile and not fix
             if (name == "main") {
-                "public static ${returnType.lowercase()} main(String[] args)"
+                "public static ${mainReturnType(ctx.type())} main(String[] args)"
             } else {
                 val params = buildString {
                     ctx.parameterList()?.parameter()?.forEach { p ->
@@ -98,11 +102,13 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     private fun compileReturn(ctx: MiniKotlinParser.ReturnStatementContext): String {
         // if we have unit/implicit return
         return if (ctx.expression() == null) {
-            "${indent()}__continuation.accept(null);\n${indent()}return;\n"
+            if (isMain) "" else "${indent()}__continuation.accept(null);\n${indent()}return;\n"
         } else {
             // for cases such as `return n * factorial(n - 1)` from the example
+            // no continuation for the main function
             compileExpr(ctx.expression()) { value ->
-                "${indent()}__continuation.accept($value);\n${indent()}return;\n"
+                if (isMain) "${indent()}return $value;\n"
+                else "${indent()}__continuation.accept($value);\n${indent()}return;\n"
             }
         }
     }
@@ -208,8 +214,8 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             compileExpr(right) { r ->
                 val expr =
                     when (op) {
-                        "==" -> "$l.equals($r)"
-                        "!=" -> "!$l.equals($r)"
+                        "==" -> "Objects.equals($l, $r)"
+                        "!=" -> "!Objects.equals($l, $r)"
                         else -> "($l $op $r)"
                     }
                 cont(expr)
@@ -264,8 +270,8 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     //     return "empty!"
     // }
 
-    override fun visitType(ctx: MiniKotlinParser.TypeContext): String {
-        return when {
+    override fun visitType(ctx: MiniKotlinParser.TypeContext): String =
+        when {
             // future: add more types if language spec changes
             ctx.INT_TYPE() != null -> "Integer"
             ctx.STRING_TYPE() != null -> "String"
@@ -273,7 +279,17 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             ctx.UNIT_TYPE() != null -> "Void"
             else -> error("unknown type: ${ctx.text}")
         }
-    }
+
+    // we could have Int/String return on main as spec allows it,
+    // but public static Integer main is not valid, hence need another function
+    fun mainReturnType(ctx: MiniKotlinParser.TypeContext): String =
+        when {
+            ctx.UNIT_TYPE() != null -> "void"
+            ctx.INT_TYPE() != null -> "int"
+            ctx.BOOLEAN_TYPE() != null -> "boolean"
+            ctx.STRING_TYPE() != null -> "String"
+            else -> error("unknown type: ${ctx.text}")
+        }
 
     // recurisvely scan the block to find all variable assignments
     fun findMutableVars(ctx: MiniKotlinParser.BlockContext): Set<String> {

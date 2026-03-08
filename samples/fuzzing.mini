@@ -1,0 +1,110 @@
+fun factorial(n: Int): Int {
+    if (n <= 1) {
+        return 1
+    } else {
+        return n * factorial(n - 1)
+    }
+}
+
+fun add(a: Int, b: Int): Int {
+    return a + b
+}
+
+fun max(a: Int, b: Int): Int {
+    if (a > b) {
+        return a
+    } else {
+        return b
+    }
+}
+
+fun abs(n: Int): Int {
+    if (n < 0) {
+        return 0 - n
+    } else {
+        return n
+    }
+}
+
+fun isEven(n: Int): Boolean {
+    return n % 2 == 0
+}
+
+fun fib(n: Int): Int {
+    if (n <= 1) {
+        return n
+    } else {
+        return fib(n - 1) + fib(n - 2)
+    }
+}
+
+fun sumTo(n: Int): Int {
+    var acc: Int = 0
+    var i: Int = 1
+    while (i <= n) {
+        acc = acc + i
+        i = i + 1
+    }
+    return acc
+}
+
+fun collatz(n: Int): Int {
+    var steps: Int = 0
+    var x: Int = n
+    while (x != 1) {
+        if (x % 2 == 0) {
+            x = x / 2
+        } else {
+            x = x * 3 + 1
+        }
+        steps = steps + 1
+    }
+    return steps
+}
+
+fun addThenDouble(a: Int, b: Int): Int {
+    return add(a, b) * 2
+}
+
+fun main(): Unit {
+    println(factorial(5))
+    println(factorial(10))
+
+    println(add(3, 4))
+
+    println(max(10, 20))
+    println(max(99, 1))
+
+    println(abs(0 - 5))
+    println(abs(5))
+
+    println(isEven(4))
+    println(isEven(7))
+
+    println(fib(10))
+
+    println(sumTo(10))
+    println(sumTo(100))
+
+    println(collatz(27))
+
+    var a: Int = factorial(3)
+    var b: Int = factorial(4)
+    println(a + b)
+
+    println(add(factorial(3), factorial(4)))
+
+    var x: Int = 0
+    while (x < 5) {
+        println(x)
+        x = x + 1
+    }
+
+    if (isEven(factorial(4))) {
+        println(1)
+    } else {
+        println(0)
+    }
+
+    return
+}
