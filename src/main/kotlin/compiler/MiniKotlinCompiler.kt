@@ -4,8 +4,14 @@ import MiniKotlinBaseVisitor
 import MiniKotlinParser
 
 class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
+    // arg{N} and tabulation counter
     private var argCounter = 0
     private var indentLevel = 0
+
+    // variables that are mutable e.g
+    // var a: Int = 5
+    // a = a + 1 <-- therefore mutable
+    private var mutableVars = emptySet<String>()
 
     private fun indent() = "    ".repeat(indentLevel)
 
@@ -31,14 +37,23 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     override fun visitFunctionDeclaration(
         ctx: MiniKotlinParser.FunctionDeclarationContext
     ): String {
+        // reset local counters
         argCounter = 0
         indentLevel = 1
+
         val name = ctx.IDENTIFIER().text
         val returnType = visitType(ctx.type())
 
+        // find all variables that are going to be mutated in the entire block
+        // the approach is, we turn mutable variables into single element array
+        // and since it is mutable in lambdas we do not get ownership errors
+        mutableVars = findMutableVars(ctx.block())
+
         val signature =
+            // technically, spec allows to have `main(): Integer`
+            // which is not legal in java, but we have to compile/transpile and not fix
             if (name == "main") {
-                "public static void main(String[] args)"
+                "public static ${returnType.lowercase()} main(String[] args)"
             } else {
                 val params = buildString {
                     ctx.parameterList()?.parameter()?.forEach { p ->
@@ -101,7 +116,10 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         val type = visitType(ctx.type())
 
         return compileExpr(ctx.expression()) { value ->
-            "${indent()}$type $name = $value;\n" + compileStatements(tail)
+            val decl =
+                if (name in mutableVars) "${indent()}$type[] $name = {$value};\n"
+                else "${indent()}$type $name = $value;\n"
+            decl + compileStatements(tail)
         }
     }
 
@@ -112,7 +130,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     ): String {
         val name = ctx.IDENTIFIER().text
         return compileExpr(ctx.expression()) { value ->
-            "${indent()}$name = $value;\n" + compileStatements(tail)
+            "${indent()}$name[0] = $value;\n" + compileStatements(tail)
         }
     }
 
@@ -197,7 +215,11 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             is MiniKotlinParser.IntLiteralContext -> cont(ctx.INTEGER_LITERAL().text)
             is MiniKotlinParser.StringLiteralContext -> cont(ctx.STRING_LITERAL().text)
             is MiniKotlinParser.BoolLiteralContext -> cont(ctx.BOOLEAN_LITERAL().text)
-            is MiniKotlinParser.IdentifierExprContext -> cont(ctx.IDENTIFIER().text)
+            is MiniKotlinParser.IdentifierExprContext ->
+                cont(
+                    if (ctx.IDENTIFIER().text in mutableVars) "${ctx.IDENTIFIER().text}[0]"
+                    else ctx.IDENTIFIER().text
+                )
             else -> error("unknown primary at ${ctx.start.line}")
         }
 
@@ -233,12 +255,31 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
 
     override fun visitType(ctx: MiniKotlinParser.TypeContext): String {
         return when {
-            // Future: add more types if language spec changes
+            // future: add more types if language spec changes
             ctx.INT_TYPE() != null -> "Integer"
             ctx.STRING_TYPE() != null -> "String"
             ctx.BOOLEAN_TYPE() != null -> "Boolean"
             ctx.UNIT_TYPE() != null -> "Void"
             else -> error("unknown type: ${ctx.text}")
         }
+    }
+
+    // recurisvely scan the block to find all variable assignments
+    fun findMutableVars(ctx: MiniKotlinParser.BlockContext): Set<String> {
+        val acc = mutableSetOf<String>()
+
+        fun scan(block: MiniKotlinParser.BlockContext) {
+            block.statement().forEach { s ->
+                s.variableAssignment()?.let { acc += it.IDENTIFIER().text }
+                s.ifStatement()?.let {
+                    scan(it.block(0))
+                    if (it.block().size > 1) scan(it.block(1))
+                }
+                s.whileStatement()?.let { scan(it.block()) }
+            }
+        }
+
+        scan(ctx)
+        return acc
     }
 }
