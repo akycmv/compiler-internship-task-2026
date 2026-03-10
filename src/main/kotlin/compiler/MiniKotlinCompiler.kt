@@ -151,17 +151,18 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     ): String {
         return compileExpr(ctx.expression()) { cond ->
             val hasElse = ctx.block().size > 1
-            // parse both branches if exist
+
+            // parse both branches if exist, add rest of the program after
             val ifBranch = indentBlock { compileStatements(ctx.block(0).statement() + tail) }
             val elseBranch =
                 if (hasElse) {
                     "${indent()}} else {\n" +
                         indentBlock { compileStatements(ctx.block(1).statement() + tail) }
-                } else ""
+                } else {
+                    "${indent()}} else {\n" + indentBlock { compileStatements(tail) }
+                }
 
-            val afterIf = if (hasElse) "" else compileStatements(tail)
-
-            "${indent()}if ($cond) {\n" + ifBranch + elseBranch + "${indent()}}\n" + afterIf
+            "${indent()}if ($cond) {\n" + ifBranch + elseBranch + "${indent()}}\n"
         }
     }
 
@@ -196,7 +197,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             "${indent()}$loopName[0].run();\n"
     }
 
-    // process all potential expressions
+    // parse all potential expressions
     private fun compileExpr(
         ctx: MiniKotlinParser.ExpressionContext,
         cont: (String) -> String,
@@ -291,6 +292,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     //     return "empty!"
     // }
 
+    // return Java type string that matches MiniKotlin's type
     override fun visitType(ctx: MiniKotlinParser.TypeContext): String =
         when {
             // future: add more types if language spec changes
