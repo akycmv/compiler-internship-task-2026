@@ -4,8 +4,9 @@ import MiniKotlinBaseVisitor
 import MiniKotlinParser
 
 class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
-    // arg{N} and tabulation counter
+    // arg{N}, loop{N} and tabulation counter
     private var argCounter = 0
+    private var loopCounter = 0
     private var indentLevel = 0
 
     // variables that are mutable e.g
@@ -27,6 +28,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return result
     }
 
+    // iterate over functions and compile each, combine output with class header
     fun compile(
         program: MiniKotlinParser.ProgramContext,
         className: String = "MiniProgram",
@@ -34,7 +36,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         val functions =
             program.functionDeclaration().joinToString("\n\n") { visitFunctionDeclaration(it) }
 
-        return "import java.util.Objects;\npublic class $className {\n\n$functions\n\n}"
+        return "import java.util.Objects;\n\npublic class $className {\n\n$functions\n\n}"
     }
 
     override fun visitFunctionDeclaration(
@@ -42,6 +44,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     ): String {
         // reset local counters
         argCounter = 0
+        loopCounter = 0
         indentLevel = 1
 
         val name = ctx.IDENTIFIER().text
@@ -147,15 +150,18 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         tail: List<MiniKotlinParser.StatementContext>,
     ): String {
         return compileExpr(ctx.expression()) { cond ->
+            val hasElse = ctx.block().size > 1
             // parse both branches if exist
             val ifBranch = indentBlock { compileStatements(ctx.block(0).statement() + tail) }
             val elseBranch =
-                if (ctx.block().size > 1) {
+                if (hasElse) {
                     "${indent()}} else {\n" +
                         indentBlock { compileStatements(ctx.block(1).statement() + tail) }
                 } else ""
 
-            "${indent()}if ($cond) {\n" + ifBranch + elseBranch + "${indent()}}\n"
+            val afterIf = if (hasElse) "" else compileStatements(tail)
+
+            "${indent()}if ($cond) {\n" + ifBranch + elseBranch + "${indent()}}\n" + afterIf
         }
     }
 
@@ -164,18 +170,33 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         ctx: MiniKotlinParser.WhileStatementContext,
         tail: List<MiniKotlinParser.StatementContext>,
     ): String {
-        return compileExpr(ctx.expression()) { cond ->
-            val block =
-                when (ctx.block()) {
-                    null -> ""
-                    else -> indentBlock { compileStatements(ctx.block().statement()) }
-                }
+        val loopName = "_loop${loopCounter++}"
 
-            "${indent()}while ($cond) {\n" + block + "${indent()}}\n" + compileStatements(tail)
+        // unwrap loop into lambda
+        // if - what we do inside the loop
+        // else - what we do after exiting the loop
+        val ifBranch = indentBlock {
+            compileStatements(ctx.block().statement()) + "${indent()}$loopName[0].run();\n"
         }
+        val elseBranch = indentBlock { compileStatements(tail) }
+
+        val body =
+            compileExpr(ctx.expression()) { cond ->
+                "${indent()}if ($cond) {\n" +
+                    ifBranch +
+                    "${indent()}} else {\n" +
+                    elseBranch +
+                    "${indent()}}\n"
+            }
+
+        return "${indent()}Runnable[] $loopName = {null};\n" +
+            "${indent()}$loopName[0] = () -> {\n" +
+            indentBlock { body } +
+            "${indent()}};\n" +
+            "${indent()}$loopName[0].run();\n"
     }
 
-    // parse all potential expressions
+    // process all potential expressions
     private fun compileExpr(
         ctx: MiniKotlinParser.ExpressionContext,
         cont: (String) -> String,
@@ -293,6 +314,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
 
     // recurisvely scan the block to find all variable assignments
     fun findMutableVars(ctx: MiniKotlinParser.BlockContext): Set<String> {
+        if (ctx == null) return emptySet()
         val acc = mutableSetOf<String>()
 
         fun scan(block: MiniKotlinParser.BlockContext) {
