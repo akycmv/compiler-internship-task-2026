@@ -4,12 +4,12 @@ import MiniKotlinBaseVisitor
 import MiniKotlinParser
 
 class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
-    // arg{N}, loop{N} and tabulation counter
+    // arg{N}, loop{N} and tabulation counter for continuations
     private var argCounter = 0
     private var loopCounter = 0
     private var indentLevel = 0
 
-    // variables that are mutable e.g
+    // variables that are mutable, e.g:
     // var a: Int = 5
     // a = a + 1 <-- therefore mutable
     private var mutableVars = emptySet<String>()
@@ -39,6 +39,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return "import java.util.Objects;\n\npublic class $className {\n\n$functions\n\n}"
     }
 
+    // compile function and return Java string
     override fun visitFunctionDeclaration(
         ctx: MiniKotlinParser.FunctionDeclarationContext
     ): String {
@@ -76,11 +77,12 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return "$signature {\n$body\n}"
     }
 
+    // visit block that is comprised of statements
     override fun visitBlock(ctx: MiniKotlinParser.BlockContext): String {
         return compileStatements(ctx.statement())
     }
 
-    // parse all possible statements based on grammar and proceed
+    // compile all possible statements based on grammar file restrictions
     fun compileStatements(stms: List<MiniKotlinParser.StatementContext>): String {
         if (stms.isEmpty()) {
             return ""
@@ -90,10 +92,15 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         val tail = stms.drop(1)
 
         return when {
+            // return ..
             head.returnStatement() != null -> compileReturn(head.returnStatement())
+            // var .. = ..
             head.variableDeclaration() != null -> compileVar(head.variableDeclaration(), tail)
+            // .. = ..
             head.variableAssignment() != null -> compileAsgt(head.variableAssignment(), tail)
+            // if (..) {...}
             head.ifStatement() != null -> compileIf(head.ifStatement(), tail)
+            // while (..)
             head.whileStatement() != null -> compileWhile(head.whileStatement(), tail)
             head.expression() != null ->
                 compileExpr(head.expression()) { _ -> compileStatements(tail) }
@@ -101,7 +108,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         }
     }
 
-    // parse `return` statements
+    // compile `return` statements
     private fun compileReturn(ctx: MiniKotlinParser.ReturnStatementContext): String {
         // if we have unit/implicit return
         return if (ctx.expression() == null) {
@@ -116,7 +123,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         }
     }
 
-    // parse `var` statements
+    // compile `var` statements
     private fun compileVar(
         ctx: MiniKotlinParser.VariableDeclarationContext,
         tail: List<MiniKotlinParser.StatementContext>,
@@ -124,6 +131,8 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         val name = ctx.IDENTIFIER().text
         val type = visitType(ctx.type())
 
+        // for mutable variables, turn them into arrays
+        // otherwise keep as normal variable
         return compileExpr(ctx.expression()) { value ->
             val decl =
                 if (name in mutableVars) "${indent()}$type[] $name = {$value};\n"
@@ -132,19 +141,19 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         }
     }
 
-    // parse `=` as assignment statements
+    // compile `=` as assignment statements
     private fun compileAsgt(
         ctx: MiniKotlinParser.VariableAssignmentContext,
         tail: List<MiniKotlinParser.StatementContext>,
     ): String {
         val name = ctx.IDENTIFIER().text
+        // since we can only assign to mutable variables, we refer to array of it
         return compileExpr(ctx.expression()) { value ->
             "${indent()}$name[0] = $value;\n" + compileStatements(tail)
         }
     }
 
-    // parse `if (...) else` statements
-    // we could change if to be an expression for multileveled ifs
+    // compile `if (...) ` statements
     private fun compileIf(
         ctx: MiniKotlinParser.IfStatementContext,
         tail: List<MiniKotlinParser.StatementContext>,
@@ -152,7 +161,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return compileExpr(ctx.expression()) { cond ->
             val hasElse = ctx.block().size > 1
 
-            // parse both branches if exist, add rest of the program after
+            // parse if and else branches (if exist), add rest of the program after
             val ifBranch = indentBlock { compileStatements(ctx.block(0).statement() + tail) }
             val elseBranch =
                 if (hasElse) {
@@ -166,7 +175,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         }
     }
 
-    // parse `while` statements
+    // compile `while` statements
     private fun compileWhile(
         ctx: MiniKotlinParser.WhileStatementContext,
         tail: List<MiniKotlinParser.StatementContext>,
@@ -174,19 +183,19 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         val loopName = "_loop${loopCounter++}"
 
         // unwrap loop into lambda
-        // if - what we do inside the loop
-        // else - what we do after exiting the loop
-        val ifBranch = indentBlock {
+        // inside - inside of the loop
+        // outside - rest of the code
+        val inside = indentBlock {
             compileStatements(ctx.block().statement()) + "${indent()}$loopName[0].run();\n"
         }
-        val elseBranch = indentBlock { compileStatements(tail) }
+        val outside = indentBlock { compileStatements(tail) }
 
         val body =
             compileExpr(ctx.expression()) { cond ->
                 "${indent()}if ($cond) {\n" +
-                    ifBranch +
+                    inside +
                     "${indent()}} else {\n" +
-                    elseBranch +
+                    outside +
                     "${indent()}}\n"
             }
 
@@ -197,12 +206,13 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             "${indent()}$loopName[0].run();\n"
     }
 
-    // parse all potential expressions
+    // compile all expressions based on grammar file
     private fun compileExpr(
         ctx: MiniKotlinParser.ExpressionContext,
         cont: (String) -> String,
     ): String =
         when (ctx) {
+            // (..), type, identifier and ! (not)
             is MiniKotlinParser.PrimaryExprContext -> compilePrimary(ctx.primary(), cont)
             is MiniKotlinParser.NotExprContext -> compileExpr(ctx.expression()) { v -> cont("!$v") }
 
@@ -220,12 +230,13 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
                     cont,
                 )
 
+            // foo(..)
             is MiniKotlinParser.FunctionCallExprContext -> compileFunc(ctx, cont)
 
             else -> error("unknown expression at ${ctx.start.line}")
         }
 
-    // parse expression of form `a op b`
+    // compile expression of form `a op b`
     private fun compileBinary(
         left: MiniKotlinParser.ExpressionContext,
         op: String,
@@ -244,7 +255,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             }
         }
 
-    // parse primary expression
+    // compile primary expression
     private fun compilePrimary(
         ctx: MiniKotlinParser.PrimaryContext,
         cont: (String) -> String,
@@ -262,7 +273,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             else -> error("unknown primary at ${ctx.start.line}")
         }
 
-    // parse function calls
+    // compile function calls
     private fun compileFunc(
         ctx: MiniKotlinParser.FunctionCallExprContext,
         cont: (String) -> String,
@@ -288,10 +299,6 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return liftArgs(0, emptyList())
     }
 
-    // override fun visitParameter(ctx: MiniKotlinParser.ParameterContext): String {
-    //     return "empty!"
-    // }
-
     // return Java type string that matches MiniKotlin's type
     override fun visitType(ctx: MiniKotlinParser.TypeContext): String =
         when {
@@ -315,7 +322,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         }
 
     // recurisvely scan the block to find all variable assignments
-    fun findMutableVars(ctx: MiniKotlinParser.BlockContext): Set<String> {
+    fun findMutableVars(ctx: MiniKotlinParser.BlockContext?): Set<String> {
         if (ctx == null) return emptySet()
         val acc = mutableSetOf<String>()
 
