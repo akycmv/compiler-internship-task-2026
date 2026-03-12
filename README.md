@@ -18,6 +18,7 @@ The goal is to implement a compiler that translates MiniKotlin source code into 
 
 <details>
 <summary>Factorial </summary>
+
 ```kotlin
 fun factorial(n: Int): Int {
     if (n <= 1) {
@@ -36,7 +37,8 @@ fun main(): Unit {
     println(a)
 }
 ```
-Transformed into
+
+Compiled into:
 
 ```java
 public static void factorial(Integer n, Continuation<Integer> __continuation) {
@@ -65,11 +67,12 @@ public static void main(String[] args) {
 
 }
 ```
+
 </details>
 <details>
 <summary> Fizzbuzz and nested functions </summary>
-```kotlin
 
+```kotlin
 fun fizzbuzz(n: Int): Unit {
     var a: Int = 0
     while (a <= n) {
@@ -96,7 +99,8 @@ fun main(): Unit {
 }
 ```
 
-Transformed into
+
+Compiled into:
 ```java
 public static void fizzbuzz(Integer n, Continuation<Void> __continuation) {
     Integer[] a = {0};
@@ -172,6 +176,7 @@ public static void main(String[] args) {
 </details>
 <details>
 <summary> Binary search </summary>
+
 ```kotlin
 fun binarySearch(target: Int, low: Int, high: Int): Boolean {
     if (low > high) {
@@ -196,7 +201,8 @@ fun main(): Unit {
     println(notFound)
 }
 ```
-Transformed into
+
+Compiled into:
 
 ```java
 public static void binarySearch(Integer target, Integer low, Integer high, Continuation<Boolean> __continuation) {
@@ -239,7 +245,7 @@ public static void main(String[] args) {
 
 }
 ```
-<details>
+</details>
 
 ## Building and Running
 
